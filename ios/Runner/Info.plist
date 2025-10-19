@@ -54,5 +54,17 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- Keycloak OAuth URL Scheme -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>livekit.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>livekit</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
