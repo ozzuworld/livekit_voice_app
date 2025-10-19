@@ -217,11 +217,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        'Realm: $realm',
+                        'Realm: ${AuthService.realm}',
                         style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                       Text(
-                        'Client: $clientId',
+                        'Client: ${AuthService.clientId}',
                         style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                     ],
