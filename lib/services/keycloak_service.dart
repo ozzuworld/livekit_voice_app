@@ -1,105 +1,184 @@
 import 'package:keycloak_wrapper/keycloak_wrapper.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
   AuthService._internal();
 
-  late final KeycloakWrapper _kc;
+  KeycloakWrapper? _kc;
   final _secure = const FlutterSecureStorage();
 
   bool _initialized = false;
   bool _authenticated = false;
-  OIDCUser? _user;
+  Map<String, dynamic>? _userInfo;
   String? _accessToken;
   String? _refreshToken;
 
-  // Config
-  static const _issuer = 'https://idp.ozzu.world/realms/june-realm';
-  static const _clientId = 'june-mobile-app';
-  static const _redirectUri = 'livekit://auth';
-  static const _scopes = ['openid', 'profile', 'email'];
+  // Configuration
+  static const String keycloakUrl = 'https://idp.ozzu.world';
+  static const String realm = 'june-realm';
+  static const String clientId = 'june-mobile-app';
+  static const String redirectUri = 'livekit://auth';
 
+  // Getters
   bool get isInitialized => _initialized;
   bool get isAuthenticated => _authenticated;
-  OIDCUser? get user => _user;
-  String get displayName => _user?.name ?? _user?.preferredUsername ?? 'User';
+  Map<String, dynamic>? get userInfo => _userInfo;
+  String get displayName {
+    if (_userInfo != null) {
+      return _userInfo!['name'] ?? 
+             _userInfo!['preferred_username'] ?? 
+             _userInfo!['given_name'] ?? 
+             'User';
+    }
+    return 'User';
+  }
+  
+  String get userEmail {
+    return _userInfo?['email'] ?? 'No email';
+  }
 
   Future<void> initialize() async {
     if (_initialized) return;
-    _kc = KeycloakWrapper(
-      issuer: _issuer,
-      clientId: _clientId,
-      redirectUrl: _redirectUri,
-      scopes: _scopes,
-      usePkce: true,
-    );
+    
+    try {
+      print('🔐 Initializing Keycloak wrapper...');
+      
+      // Initialize KeycloakWrapper
+      _kc = KeycloakWrapper();
+      await _kc!.initialize(
+        issuer: '$keycloakUrl/realms/$realm',
+        clientId: clientId,
+        redirectUrl: redirectUri,
+        scopes: ['openid', 'profile', 'email'],
+      );
 
-    // Try restore session
-    _accessToken = await _secure.read(key: 'kc_access');
-    _refreshToken = await _secure.read(key: 'kc_refresh');
-    if (_accessToken != null) {
-      try {
-        _user = await _kc.getUserInfo(accessToken: _accessToken!);
-        _authenticated = true;
-      } catch (_) {
-        _authenticated = false;
+      // Try to restore previous session
+      _accessToken = await _secure.read(key: 'kc_access_token');
+      _refreshToken = await _secure.read(key: 'kc_refresh_token');
+      
+      if (_accessToken != null && _refreshToken != null) {
+        print('🔐 Found stored tokens, validating...');
+        try {
+          // Try to get user info with stored token
+          _userInfo = await _kc!.getUserInfo();
+          _authenticated = true;
+          print('✅ Session restored successfully');
+        } catch (e) {
+          print('❌ Stored tokens invalid: $e');
+          await _clearTokens();
+        }
       }
-    }
 
-    _initialized = true;
+      _initialized = true;
+      print('✅ Keycloak service initialized');
+    } catch (e) {
+      print('❌ Keycloak initialization failed: $e');
+      _initialized = true; // Set to avoid retry loops
+      rethrow;
+    }
   }
 
   Future<bool> login() async {
-    final result = await _kc.login();
-    if (result != null) {
-      _accessToken = result.accessToken;
-      _refreshToken = result.refreshToken;
-      await _secure.write(key: 'kc_access', value: _accessToken);
-      await _secure.write(key: 'kc_refresh', value: _refreshToken);
-      _user = await _kc.getUserInfo(accessToken: _accessToken!);
-      _authenticated = true;
-      return true;
+    if (!_initialized || _kc == null) {
+      throw Exception('Keycloak service not initialized');
     }
-    return false;
-  }
 
-  Future<void> logout() async {
     try {
-      if (_refreshToken != null) {
-        await _kc.logout(refreshToken: _refreshToken!);
+      print('🔐 Starting login flow...');
+      
+      final result = await _kc!.login(
+        issuer: '$keycloakUrl/realms/$realm',
+        clientId: clientId,
+        redirectUrl: redirectUri,
+        scopes: ['openid', 'profile', 'email'],
+      );
+      
+      if (result.isSuccess && result.data != null) {
+        final tokens = result.data!;
+        _accessToken = tokens.accessToken;
+        _refreshToken = tokens.refreshToken;
+        
+        // Save tokens securely
+        await _secure.write(key: 'kc_access_token', value: _accessToken!);
+        await _secure.write(key: 'kc_refresh_token', value: _refreshToken!);
+        
+        // Get user info
+        _userInfo = await _kc!.getUserInfo();
+        _authenticated = true;
+        
+        print('✅ Login successful: ${displayName}');
+        return true;
+      } else {
+        print('❌ Login failed: ${result.message}');
+        return false;
       }
-    } finally {
-      _authenticated = false;
-      _user = null;
-      _accessToken = null;
-      _refreshToken = null;
-      await _secure.delete(key: 'kc_access');
-      await _secure.delete(key: 'kc_refresh');
-    }
-  }
-
-  Future<bool> _refreshIfNeeded() async {
-    if (_accessToken == null || _refreshToken == null) return false;
-    final willExpire = await _kc.willAccessTokenExpireIn(_accessToken!, const Duration(seconds: 30));
-    if (!willExpire) return true;
-    try {
-      final tokens = await _kc.refreshToken(refreshToken: _refreshToken!);
-      _accessToken = tokens.accessToken;
-      _refreshToken = tokens.refreshToken;
-      await _secure.write(key: 'kc_access', value: _accessToken);
-      await _secure.write(key: 'kc_refresh', value: _refreshToken);
-      return true;
-    } catch (_) {
+    } catch (e) {
+      print('❌ Login error: $e');
       return false;
     }
   }
 
+  Future<void> logout() async {
+    if (!_authenticated || _kc == null) return;
+
+    try {
+      print('🔐 Starting logout...');
+      
+      await _kc!.logout(
+        issuer: '$keycloakUrl/realms/$realm',
+        redirectUrl: redirectUri,
+      );
+      
+      print('✅ Logout successful');
+    } catch (e) {
+      print('❌ Logout error: $e');
+    } finally {
+      await _clearAuthentication();
+    }
+  }
+
   Future<String?> getAccessToken() async {
-    if (!_authenticated) return null;
-    await _refreshIfNeeded();
-    return _accessToken;
+    if (!_authenticated || _accessToken == null) return null;
+    
+    try {
+      // Try to refresh token if needed
+      if (_refreshToken != null) {
+        final result = await _kc!.refreshToken(
+          issuer: '$keycloakUrl/realms/$realm',
+          clientId: clientId,
+          refreshToken: _refreshToken!,
+        );
+        
+        if (result.isSuccess && result.data != null) {
+          final tokens = result.data!;
+          _accessToken = tokens.accessToken;
+          _refreshToken = tokens.refreshToken;
+          
+          // Update stored tokens
+          await _secure.write(key: 'kc_access_token', value: _accessToken!);
+          await _secure.write(key: 'kc_refresh_token', value: _refreshToken!);
+        }
+      }
+      
+      return _accessToken;
+    } catch (e) {
+      print('❌ Token refresh failed: $e');
+      return _accessToken; // Return existing token even if refresh failed
+    }
+  }
+
+  Future<void> _clearTokens() async {
+    await _secure.delete(key: 'kc_access_token');
+    await _secure.delete(key: 'kc_refresh_token');
+  }
+
+  Future<void> _clearAuthentication() async {
+    _authenticated = false;
+    _userInfo = null;
+    _accessToken = null;
+    _refreshToken = null;
+    await _clearTokens();
   }
 }
