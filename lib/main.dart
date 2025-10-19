@@ -109,8 +109,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
                 valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
               ),
               
-              // Error handling section
-              if (_errorMessage.isNotEmpty) ..[
+              // Fixed syntax: use ...[ instead of ..[
+              if (_errorMessage.isNotEmpty) ...[
                 SizedBox(height: 32),
                 Container(
                   margin: EdgeInsets.symmetric(horizontal: 32),
