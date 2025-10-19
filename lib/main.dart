@@ -34,9 +34,12 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
   List<RemoteParticipant> remoteParticipants = [];
   String statusMessage = 'Not Connected';
   
-  // Your LiveKit server configuration
   final String websocketUrl = 'wss://livekit.ozzu.world';
   final String tokenUrl = 'https://api.ozzu.world/livekit/token';
+  
+  // Defaults (can be moved to settings later)
+  final String defaultRoomName = 'voice-room';
+  String get defaultParticipantName => 'flutter-user-${DateTime.now().millisecondsSinceEpoch}';
   
   @override
   Widget build(BuildContext context) {
@@ -51,7 +54,6 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Status Card
             Card(
               elevation: 4,
               child: Container(
@@ -83,23 +85,15 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
                 ),
               ),
             ),
-            
             SizedBox(height: 40),
-            
-            // Connection Controls
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                // Connect Button
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: (isConnected || isConnecting) ? null : connectToRoom,
                     icon: isConnecting 
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
+                        ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                         : Icon(Icons.phone),
                     label: Text(isConnecting ? 'Connecting...' : 'Connect'),
                     style: ElevatedButton.styleFrom(
@@ -109,10 +103,7 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
                     ),
                   ),
                 ),
-                
                 SizedBox(width: 16),
-                
-                // Disconnect Button
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: isConnected ? disconnectFromRoom : null,
@@ -127,10 +118,7 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
                 ),
               ],
             ),
-            
             SizedBox(height: 20),
-            
-            // Mute/Unmute Button
             Container(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -144,10 +132,7 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
                 ),
               ),
             ),
-            
             SizedBox(height: 40),
-            
-            // Info Card
             Card(
               color: Colors.blue[50],
               child: Padding(
@@ -155,16 +140,12 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Server Configuration:',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
+                    Text('Server Configuration:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     SizedBox(height: 8),
                     Text('WebSocket: $websocketUrl'),
                     Text('Token API: $tokenUrl'),
+                    Text('roomName: $defaultRoomName'),
+                    Text('participantName: ${defaultParticipantName.substring(0, 22)}...'),
                   ],
                 ),
               ),
@@ -175,14 +156,9 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
     );
   }
   
-  // Get token from your June backend server
   Future<String> getToken() async {
     try {
-      setState(() {
-        statusMessage = 'Getting authentication token...';
-      });
-      
-      // Use POST request to match your June backend
+      setState(() { statusMessage = 'Getting authentication token...'; });
       final response = await http.post(
         Uri.parse(tokenUrl),
         headers: {
@@ -190,35 +166,22 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
           'Accept': 'application/json',
         },
         body: json.encode({
-          'room': 'voice-room',  // Default room name
-          'identity': 'flutter-user-${DateTime.now().millisecondsSinceEpoch}', // Unique identity
+          // Match June backend contract
+          'roomName': defaultRoomName,
+          'participantName': defaultParticipantName,
         }),
       );
-      
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        
-        // Handle different token response formats from June backend
-        if (data is String) {
-          return data; // Direct token string
-        } else if (data is Map<String, dynamic>) {
-          // Try different possible token field names
-          if (data['token'] != null) {
-            return data['token'];
-          } else if (data['accessToken'] != null) {
-            return data['accessToken'];
-          } else if (data['access_token'] != null) {
-            return data['access_token'];
-          } else if (data['jwt'] != null) {
-            return data['jwt'];
-          } else {
-            // If it's an object but no recognized token field, log and throw error
-            print('Token response format: ${data.toString()}');
-            throw Exception('Token field not found in response. Available fields: ${data.keys.toList()}');
-          }
-        } else {
-          throw Exception('Unexpected token response format');
+        if (data is String) return data;
+        if (data is Map<String, dynamic>) {
+          if (data['token'] != null) return data['token'];
+          if (data['accessToken'] != null) return data['accessToken'];
+          if (data['access_token'] != null) return data['access_token'];
+          if (data['jwt'] != null) return data['jwt'];
+          throw Exception('Token field not found in response. Available fields: ${data.keys.toList()}');
         }
+        throw Exception('Unexpected token response format');
       } else {
         print('Token request failed - Status: ${response.statusCode}');
         print('Response body: ${response.body}');
@@ -230,147 +193,62 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
       throw Exception('Could not get token: $e');
     }
   }
-  
-  // Connect to LiveKit room
+
   Future<void> connectToRoom() async {
-    setState(() {
-      isConnecting = true;
-      statusMessage = 'Initializing connection...';
-    });
-    
+    setState(() { isConnecting = true; statusMessage = 'Initializing connection...'; });
     try {
-      // Get token from your June backend
       final token = await getToken();
-      
-      setState(() {
-        statusMessage = 'Connecting to LiveKit server...';
-      });
-      
-      // Create room with options
-      room = Room(
-        roomOptions: const RoomOptions(
-          adaptiveStream: true,
-          dynacast: true,
-        ),
-      );
-      
-      // Set up event listeners
+      setState(() { statusMessage = 'Connecting to LiveKit server...'; });
+      room = Room(roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true));
       room!.addListener(_onRoomUpdate);
-      
-      // Connect to the room
       await room!.connect(websocketUrl, token);
-      
-      // Enable microphone (start with muted)
       await room!.localParticipant?.setMicrophoneEnabled(false);
-      
-      setState(() {
-        isConnected = true;
-        isConnecting = false;
-        statusMessage = 'Connected to LiveKit room';
-      });
-      
-      print('Successfully connected to LiveKit room');
-      
-      // Show success message
+      setState(() { isConnected = true; isConnecting = false; statusMessage = 'Connected to LiveKit room'; });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Successfully connected to voice room'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully connected to voice room'), backgroundColor: Colors.green, duration: Duration(seconds: 2)));
       }
-      
     } catch (error) {
-      print('Failed to connect to room: $error');
-      setState(() {
-        isConnected = false;
-        isConnecting = false;
-        statusMessage = 'Connection failed';
-      });
-      
-      // Show error to user
+      setState(() { isConnected = false; isConnecting = false; statusMessage = 'Connection failed'; });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to connect: ${error.toString()}'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 4),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect: ${error.toString()}'), backgroundColor: Colors.red, duration: Duration(seconds: 4)));
       }
     }
   }
-  
-  // Disconnect from room
+
   Future<void> disconnectFromRoom() async {
     try {
-      setState(() {
-        statusMessage = 'Disconnecting...';
-      });
-      
+      setState(() { statusMessage = 'Disconnecting...'; });
       await room?.disconnect();
       room?.removeListener(_onRoomUpdate);
-      
-      setState(() {
-        isConnected = false;
-        remoteParticipants.clear();
-        isMuted = true;
-        statusMessage = 'Disconnected';
-      });
-      
-      print('Disconnected from room');
-      
+      setState(() { isConnected = false; remoteParticipants.clear(); isMuted = true; statusMessage = 'Disconnected'; });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Disconnected from voice room'),
-            backgroundColor: Colors.grey,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Disconnected from voice room'), backgroundColor: Colors.grey, duration: Duration(seconds: 2)));
       }
     } catch (error) {
-      print('Error disconnecting: $error');
-      setState(() {
-        statusMessage = 'Error during disconnect';
-      });
+      setState(() { statusMessage = 'Error during disconnect'; });
     }
   }
-  
-  // Toggle microphone mute/unmute
+
   Future<void> toggleMute() async {
     try {
       if (room?.localParticipant != null) {
         await room!.localParticipant!.setMicrophoneEnabled(isMuted);
-        setState(() {
-          isMuted = !isMuted;
-        });
-        
+        setState(() { isMuted = !isMuted; });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(isMuted ? 'Microphone muted' : 'Microphone unmuted'),
-              duration: Duration(seconds: 1),
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isMuted ? 'Microphone muted' : 'Microphone unmuted'), duration: Duration(seconds: 1)));
         }
       }
     } catch (error) {
-      print('Error toggling mute: $error');
+      // ignore
     }
   }
-  
-  // Handle room events
+
   void _onRoomUpdate() {
     if (mounted) {
-      setState(() {
-        remoteParticipants = room?.remoteParticipants.values.toList() ?? [];
-      });
+      setState(() { remoteParticipants = room?.remoteParticipants.values.toList() ?? []; });
     }
   }
-  
+
   @override
   void dispose() {
     disconnectFromRoom();
