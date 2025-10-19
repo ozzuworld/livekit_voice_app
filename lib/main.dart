@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:livekit_client/livekit_client.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'dart:math';
+import 'services/keycloak_service.dart';
+import 'screens/login_screen.dart';
+import 'screens/voice_call_screen.dart';
 
 void main() {
   runApp(MyApp());
@@ -17,253 +16,144 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      home: VoiceCallPage(),
+      home: AuthWrapper(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class VoiceCallPage extends StatefulWidget {
+class AuthWrapper extends StatefulWidget {
   @override
-  _VoiceCallPageState createState() => _VoiceCallPageState();
+  _AuthWrapperState createState() => _AuthWrapperState();
 }
 
-class _VoiceCallPageState extends State<VoiceCallPage> {
-  Room? room;
-  bool isConnected = false;
-  bool isMuted = true;
-  bool isConnecting = false;
-  List<RemoteParticipant> remoteParticipants = [];
-  String statusMessage = 'Not Connected';
-  
-  final String websocketUrl = 'wss://livekit.ozzu.world';
-  final String tokenUrl = 'https://api.ozzu.world/livekit/token';
-  
-  final String defaultRoomName = 'voice-room';
-  
-  // Recommended: short random identity to avoid collisions & precision issues
-  String get defaultParticipantName {
-    final rand = Random();
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    final suffix = List.generate(8, (_) => chars[rand.nextInt(chars.length)]).join();
-    return 'flutter-$suffix';
+class _AuthWrapperState extends State<AuthWrapper> {
+  final AuthService _authService = AuthService();
+  bool _isInitializing = true;
+  String _errorMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
   }
-  
+
+  Future<void> _initializeApp() async {
+    try {
+      print('🚀 Initializing LiveKit Voice App...');
+      
+      // Initialize authentication service
+      await _authService.initialize();
+      
+      setState(() {
+        _isInitializing = false;
+      });
+      
+      print('✅ App initialization completed');
+    } catch (e) {
+      print('❌ App initialization failed: $e');
+      setState(() {
+        _isInitializing = false;
+        _errorMessage = 'Failed to initialize app: $e';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('LiveKit Voice Call'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        elevation: 2,
-      ),
-      body: Container(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Card(
-              elevation: 4,
-              child: Container(
-                width: double.infinity,
+    if (_isInitializing) {
+      return Scaffold(
+        backgroundColor: Colors.blue[50],
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // App Logo
+              Container(
                 padding: EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    Icon(
-                      isConnected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                      size: 48,
-                      color: isConnected ? Colors.green : Colors.red,
-                    ),
-                    SizedBox(height: 10),
-                    Text(
-                      statusMessage,
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: isConnected ? Colors.green : Colors.red,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    SizedBox(height: 10),
-                    Text(
-                      'Remote Participants: ${remoteParticipants.length}',
-                      style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-                    ),
-                  ],
+                decoration: BoxDecoration(
+                  color: Colors.blue[600],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Icon(
+                  Icons.voice_chat,
+                  size: 80,
+                  color: Colors.white,
                 ),
               ),
-            ),
-            SizedBox(height: 40),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: (isConnected || isConnecting) ? null : connectToRoom,
-                    icon: isConnecting 
-                        ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : Icon(Icons.phone),
-                    label: Text(isConnecting ? 'Connecting...' : 'Connect'),
-                    style: ElevatedButton.styleFrom(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
+              
+              SizedBox(height: 32),
+              
+              Text(
+                'LiveKit Voice App',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800],
                 ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: isConnected ? disconnectFromRoom : null,
-                    icon: Icon(Icons.phone_disabled),
-                    label: Text('Disconnect'),
-                    style: ElevatedButton.styleFrom(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                    ),
+              ),
+              
+              SizedBox(height: 16),
+              
+              Text(
+                'Initializing...',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+              
+              SizedBox(height: 24),
+              
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+              ),
+              
+              if (_errorMessage.isNotEmpty) ..[
+                SizedBox(height: 32),
+                Container(
+                  margin: EdgeInsets.symmetric(horizontal: 32),
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.error, color: Colors.red[600]),
+                      SizedBox(height: 8),
+                      Text(
+                        _errorMessage,
+                        style: TextStyle(color: Colors.red[700]),
+                        textAlign: TextAlign.center,
+                      ),
+                      SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _isInitializing = true;
+                            _errorMessage = '';
+                          });
+                          _initializeApp();
+                        },
+                        child: Text('Retry'),
+                      ),
+                    ],
                   ),
                 ),
               ],
-            ),
-            SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: isConnected ? toggleMute : null,
-                icon: Icon(isMuted ? Icons.mic_off : Icons.mic),
-                label: Text(isMuted ? 'Unmute Microphone' : 'Mute Microphone'),
-                style: ElevatedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: isMuted ? Colors.orange : Colors.blue,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ),
-            SizedBox(height: 40),
-            Card(
-              color: Colors.blue[50],
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Server Configuration:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    SizedBox(height: 8),
-                    Text('WebSocket: $websocketUrl'),
-                    Text('Token API: $tokenUrl'),
-                    Text('roomName: $defaultRoomName'),
-                    Text('participantName: (randomized)'),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
-  
-  Future<String> getToken() async {
-    try {
-      setState(() { statusMessage = 'Getting authentication token...'; });
-      final identity = defaultParticipantName;
-      final response = await http.post(
-        Uri.parse(tokenUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'User-Agent': 'Flutter-LiveKit-App/1.0',
-        },
-        body: json.encode({
-          'roomName': defaultRoomName,
-          'participantName': identity,
-        }),
-      ).timeout(Duration(seconds: 30));
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data is Map<String, dynamic> && data['token'] != null) {
-          return data['token'];
-        }
-        throw Exception('Token field not found in response');
-      } else {
-        throw Exception('HTTP ${response.statusCode}: ${response.body}');
-      }
-    } catch (e) {
-      throw Exception('Could not get token: $e');
+      );
     }
-  }
 
-  Future<void> connectToRoom() async {
-    setState(() { isConnecting = true; statusMessage = 'Initializing connection...'; });
-    try {
-      final token = await getToken();
-      setState(() { statusMessage = 'Connecting to LiveKit server...'; });
-      room = Room(roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true));
-      room!.addListener(_onRoomUpdate);
-      await room!.connect(websocketUrl, token);
-      await room!.localParticipant?.setMicrophoneEnabled(false);
-      setState(() { 
-        isConnected = true; 
-        isConnecting = false; 
-        statusMessage = 'Connected to LiveKit room'; 
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Successfully connected to voice room'), backgroundColor: Colors.green, duration: Duration(seconds: 2))
-        );
-      }
-    } catch (error) {
-      setState(() { isConnected = false; isConnecting = false; statusMessage = 'Connection failed'; });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to connect: ${error.toString()}'), backgroundColor: Colors.red, duration: Duration(seconds: 4))
-        );
-      }
+    // Show appropriate screen based on authentication status
+    if (_authService.isAuthenticated) {
+      return VoiceCallScreen();
+    } else {
+      return LoginScreen();
     }
-  }
-
-  Future<void> disconnectFromRoom() async {
-    try {
-      setState(() { statusMessage = 'Disconnecting...'; });
-      await room?.disconnect();
-      room?.removeListener(_onRoomUpdate);
-      setState(() { isConnected = false; remoteParticipants.clear(); isMuted = true; statusMessage = 'Disconnected'; });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Disconnected from voice room'), backgroundColor: Colors.grey, duration: Duration(seconds: 2))
-        );
-      }
-    } catch (error) {
-      setState(() { statusMessage = 'Error during disconnect'; });
-    }
-  }
-
-  Future<void> toggleMute() async {
-    try {
-      if (room?.localParticipant != null) {
-        await room!.localParticipant!.setMicrophoneEnabled(isMuted);
-        setState(() { isMuted = !isMuted; });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(isMuted ? 'Microphone muted' : 'Microphone unmuted'), duration: Duration(seconds: 1))
-          );
-        }
-      }
-    } catch (error) {
-      // ignore
-    }
-  }
-
-  void _onRoomUpdate() {
-    if (mounted) {
-      setState(() { remoteParticipants = room?.remoteParticipants.values.toList() ?? []; });
-    }
-  }
-
-  @override
-  void dispose() {
-    disconnectFromRoom();
-    super.dispose();
   }
 }
