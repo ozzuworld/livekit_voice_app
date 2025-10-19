@@ -175,32 +175,54 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
     );
   }
   
-  // Get token from your server
+  // Get token from your June backend server
   Future<String> getToken() async {
     try {
       setState(() {
         statusMessage = 'Getting authentication token...';
       });
       
-      final response = await http.get(
+      // Use POST request to match your June backend
+      final response = await http.post(
         Uri.parse(tokenUrl),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode({
+          'room': 'voice-room',  // Default room name
+          'identity': 'flutter-user-${DateTime.now().millisecondsSinceEpoch}', // Unique identity
+        }),
       );
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        // Adjust the key based on your server response format
-        // Common formats: data['token'] or data['accessToken'] or data
+        
+        // Handle different token response formats from June backend
         if (data is String) {
-          return data; // If the response is directly the token
-        } else if (data['token'] != null) {
-          return data['token'];
-        } else if (data['accessToken'] != null) {
-          return data['accessToken'];
+          return data; // Direct token string
+        } else if (data is Map<String, dynamic>) {
+          // Try different possible token field names
+          if (data['token'] != null) {
+            return data['token'];
+          } else if (data['accessToken'] != null) {
+            return data['accessToken'];
+          } else if (data['access_token'] != null) {
+            return data['access_token'];
+          } else if (data['jwt'] != null) {
+            return data['jwt'];
+          } else {
+            // If it's an object but no recognized token field, log and throw error
+            print('Token response format: ${data.toString()}');
+            throw Exception('Token field not found in response. Available fields: ${data.keys.toList()}');
+          }
         } else {
-          throw Exception('Token not found in response');
+          throw Exception('Unexpected token response format');
         }
       } else {
+        print('Token request failed - Status: ${response.statusCode}');
+        print('Response body: ${response.body}');
+        print('Response headers: ${response.headers}');
         throw Exception('Server returned ${response.statusCode}: ${response.body}');
       }
     } catch (e) {
@@ -217,7 +239,7 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
     });
     
     try {
-      // Get token from your server
+      // Get token from your June backend
       final token = await getToken();
       
       setState(() {
