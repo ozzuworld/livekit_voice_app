@@ -17,15 +17,16 @@ android {
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
-        manifestPlaceholders = [
-            appAuthRedirectScheme: "livekit"
+        
+        // OAuth redirect scheme for Keycloak (must match bundleIdentifier)
+        // IMPORTANT: Use += instead of = to avoid multidex issues
+        manifestPlaceholders += [
+            'appAuthRedirectScheme': 'com.example.livekit_voice_app'
         ]
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig signingConfigs.debug
             shrinkResources false
             minifyEnabled false

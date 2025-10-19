@@ -5,24 +5,23 @@ class AuthService {
   factory AuthService() => _instance;
   AuthService._internal();
 
-  // Static config used across the app
+  // Static config
   static const String frontendUrl = 'https://idp.ozzu.world';
-  static const String realm = 'june-realm';
+  static const String realm = 'allsafe';
   static const String clientId = 'june-mobile-app';
-  // Bundle identifier / applicationId of your app
   static const String bundleIdentifier = 'com.example.livekit_voice_app';
 
-  final KeycloakWrapper _kc = KeycloakWrapper();
-
-  late final KeycloakConfig _config;
+  // Create KeycloakWrapper instance with config
+  late final KeycloakWrapper _kc;
+  
   bool _initialized = false;
-  bool _authenticated = false;
   Map<String, dynamic>? _userInfo;
 
   // Getters
   bool get isInitialized => _initialized;
-  bool get isAuthenticated => _authenticated;
+  bool get isAuthenticated => _kc.isAuthenticated;
   Map<String, dynamic>? get userInfo => _userInfo;
+  
   String get displayName {
     if (_userInfo != null) {
       return (_userInfo!['name'] ??
@@ -32,25 +31,42 @@ class AuthService {
     }
     return 'User';
   }
+  
   String get userEmail => (_userInfo?['email'] ?? 'No email').toString();
 
   Future<void> initialize() async {
     if (_initialized) return;
 
-    _config = KeycloakConfig(
+    // Create KeycloakConfig
+    final config = KeycloakConfig(
       bundleIdentifier: bundleIdentifier,
       clientId: clientId,
       frontendUrl: frontendUrl,
       realm: realm,
     );
 
-    // In 0.4.23, initialize() may be a no-op; rely on auth stream
+    // Initialize KeycloakWrapper with config
+    _kc = KeycloakWrapper(config: config);
+    
+    // Set up error handling
+    _kc.onError = (message, error, stackTrace) {
+      print('❌ Keycloak Error: $message');
+      if (error != null) print('Error details: $error');
+      if (stackTrace != null) print('Stack trace: $stackTrace');
+    };
+    
+    // Initialize the wrapper
+    _kc.initialize();
+    
+    // Listen to authentication stream
     _kc.authenticationStream.listen((isAuthed) async {
-      _authenticated = isAuthed;
+      print('🔐 Authentication state changed: $isAuthed');
       if (isAuthed) {
         try {
           _userInfo = await _kc.getUserInfo();
-        } catch (_) {
+          print('✅ User info loaded: ${_userInfo?['name']}');
+        } catch (e) {
+          print('⚠️ Failed to load user info: $e');
           _userInfo = null;
         }
       } else {
@@ -59,33 +75,56 @@ class AuthService {
     });
 
     _initialized = true;
+    print('✅ AuthService initialized');
   }
 
   Future<bool> login() async {
-    // 0.4.23 expects the config as a positional argument
-    final success = await _kc.login(_config);
-    if (success) {
-      try {
-        _userInfo = await _kc.getUserInfo();
-        _authenticated = true;
-      } catch (_) {
-        _userInfo = null;
+    try {
+      print('🔑 Attempting login...');
+      final success = await _kc.login();
+      
+      if (success) {
+        print('✅ Login successful');
+        // Fetch user info after successful login
+        try {
+          _userInfo = await _kc.getUserInfo();
+          print('✅ User info loaded: ${_userInfo?['name']}');
+        } catch (e) {
+          print('⚠️ Failed to load user info after login: $e');
+        }
+      } else {
+        print('❌ Login failed');
       }
+      
+      return success;
+    } catch (e) {
+      print('❌ Login error: $e');
+      return false;
     }
-    return success;
   }
 
   Future<void> logout() async {
     try {
+      print('👋 Attempting logout...');
       await _kc.logout();
-    } finally {
-      _authenticated = false;
+      _userInfo = null;
+      print('✅ Logout successful');
+    } catch (e) {
+      print('❌ Logout error: $e');
+      // Clear local state even if logout fails
       _userInfo = null;
     }
   }
 
   Future<String?> getAccessToken() async {
-    // keycloak_wrapper 0.4.23 doesn't expose raw tokens; return null for now
-    return null;
+    try {
+      return _kc.accessToken;
+    } catch (e) {
+      print('⚠️ Failed to get access token: $e');
+      return null;
+    }
   }
+  
+  String? get idToken => _kc.idToken;
+  String? get refreshToken => _kc.refreshToken;
 }

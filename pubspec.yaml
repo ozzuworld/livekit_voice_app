@@ -12,9 +12,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   livekit_client: ^2.5.2
   http: ^1.2.2
-  keycloak_wrapper: ^0.4.23
-  flutter_secure_storage: ^9.2.2
-  shared_preferences: ^2.2.2
+  # Use latest stable version of keycloak_wrapper
+  keycloak_wrapper: ^1.4.6
 
 dev_dependencies:
   flutter_test:
