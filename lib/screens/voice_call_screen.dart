@@ -27,16 +27,22 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> {
   
   // Use authenticated user info for participant name
   String get authenticatedParticipantName {
-    final userProfile = _authService.userProfile;
-    if (userProfile != null) {
-      // Use Keycloak username or preferred_username
-      String username = userProfile.username ?? userProfile.preferredUsername ?? 'user';
-      // Clean username for LiveKit (alphanumeric + dash/underscore only)
-      username = username.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-      return username.length > 2 ? username : 'user_${username}';
+    final userInfo = _authService.userInfo;
+    if (userInfo != null) {
+      // Try to get username from various Keycloak fields
+      String? username = userInfo['preferred_username'] ?? 
+                        userInfo['username'] ?? 
+                        userInfo['given_name'] ??
+                        userInfo['name'];
+      
+      if (username != null && username.isNotEmpty) {
+        // Clean username for LiveKit (alphanumeric + dash/underscore only)
+        username = username.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+        return username.length > 2 ? username : 'user_${username}';
+      }
     }
     
-    // Fallback to random if no user profile
+    // Fallback to random if no user info
     final rand = Random();
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     final suffix = List.generate(8, (_) => chars[rand.nextInt(chars.length)]).join();
@@ -45,7 +51,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> {
   
   @override
   Widget build(BuildContext context) {
-    final userProfile = _authService.userProfile;
+    final userInfo = _authService.userInfo;
     
     return Scaffold(
       appBar: AppBar(
@@ -72,7 +78,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     Text(
-                      userProfile?.email ?? 'No email',
+                      _authService.userEmail,
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
                   ],
@@ -133,7 +139,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> {
                             ),
                           ),
                           Text(
-                            userProfile?.email ?? 'Authenticated user',
+                            _authService.userEmail,
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.grey[600],
@@ -276,7 +282,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': accessToken != null ? 'Bearer $accessToken' : '',
+          if (accessToken != null) 'Authorization': 'Bearer $accessToken',
           'User-Agent': 'Flutter-LiveKit-App/1.0',
         },
         body: json.encode({
