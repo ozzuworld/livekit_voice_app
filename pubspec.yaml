@@ -1,5 +1,5 @@
 name: livekit_voice_app
-description: "A Flutter LiveKit voice chat application."
+description: "A Flutter LiveKit voice chat application with Keycloak authentication."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   livekit_client: ^2.5.2
   http: ^1.2.2
+  keycloak_flutter: ^2.1.0
+  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:
