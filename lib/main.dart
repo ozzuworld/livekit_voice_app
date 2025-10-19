@@ -159,38 +159,46 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
   Future<String> getToken() async {
     try {
       setState(() { statusMessage = 'Getting authentication token...'; });
+      
+      // Prepare request data
+      final requestBody = {
+        'roomName': defaultRoomName,
+        'participantName': defaultParticipantName,
+      };
+      
+      print('🚀 Token request starting...');
+      print('📍 URL: $tokenUrl');
+      print('📦 Body: ${json.encode(requestBody)}');
+      
       final response = await http.post(
         Uri.parse(tokenUrl),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'User-Agent': 'Flutter-LiveKit-App/1.0',
         },
-        body: json.encode({
-          // Match June backend contract
-          'roomName': defaultRoomName,
-          'participantName': defaultParticipantName,
-        }),
-      );
+        body: json.encode(requestBody),
+      ).timeout(Duration(seconds: 30));
+      
+      print('✅ Response Status: ${response.statusCode}');
+      print('📥 Response Headers: ${response.headers}');
+      print('📄 Response Body: ${response.body}');
+      
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (data is String) return data;
-        if (data is Map<String, dynamic>) {
-          if (data['token'] != null) return data['token'];
-          if (data['accessToken'] != null) return data['accessToken'];
-          if (data['access_token'] != null) return data['access_token'];
-          if (data['jwt'] != null) return data['jwt'];
-          throw Exception('Token field not found in response. Available fields: ${data.keys.toList()}');
+        
+        if (data is Map<String, dynamic> && data['token'] != null) {
+          print('🎫 Token extracted successfully!');
+          return data['token'];
+        } else {
+          throw Exception('Token field not found in response. Available fields: ${data is Map ? data.keys.toList() : "Not a map"}');
         }
-        throw Exception('Unexpected token response format');
       } else {
-        print('Token request failed - Status: ${response.statusCode}');
-        print('Response body: ${response.body}');
-        print('Response headers: ${response.headers}');
-        throw Exception('Server returned ${response.statusCode}: ${response.body}');
+        throw Exception('HTTP ${response.statusCode}: ${response.body}');
       }
     } catch (e) {
-      print('Error getting token: $e');
-      throw Exception('Could not get token: $e');
+      print('❌ Token request failed: $e');
+      rethrow;
     }
   }
 
@@ -199,18 +207,50 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
     try {
       final token = await getToken();
       setState(() { statusMessage = 'Connecting to LiveKit server...'; });
+      
+      print('🔗 Creating LiveKit room...');
       room = Room(roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true));
       room!.addListener(_onRoomUpdate);
+      
+      print('🌐 Connecting to: $websocketUrl');
       await room!.connect(websocketUrl, token);
+      
+      print('🎤 Setting up microphone...');
       await room!.localParticipant?.setMicrophoneEnabled(false);
-      setState(() { isConnected = true; isConnecting = false; statusMessage = 'Connected to LiveKit room'; });
+      
+      setState(() { 
+        isConnected = true; 
+        isConnecting = false; 
+        statusMessage = 'Connected to LiveKit room'; 
+      });
+      
+      print('✅ Successfully connected to LiveKit!');
+      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully connected to voice room'), backgroundColor: Colors.green, duration: Duration(seconds: 2)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully connected to voice room'), 
+            backgroundColor: Colors.green, 
+            duration: Duration(seconds: 2)
+          )
+        );
       }
     } catch (error) {
-      setState(() { isConnected = false; isConnecting = false; statusMessage = 'Connection failed'; });
+      print('❌ Connection failed: $error');
+      setState(() { 
+        isConnected = false; 
+        isConnecting = false; 
+        statusMessage = 'Connection failed'; 
+      });
+      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect: ${error.toString()}'), backgroundColor: Colors.red, duration: Duration(seconds: 4)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to connect: ${error.toString()}'), 
+            backgroundColor: Colors.red, 
+            duration: Duration(seconds: 4)
+          )
+        );
       }
     }
   }
@@ -220,9 +260,20 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
       setState(() { statusMessage = 'Disconnecting...'; });
       await room?.disconnect();
       room?.removeListener(_onRoomUpdate);
-      setState(() { isConnected = false; remoteParticipants.clear(); isMuted = true; statusMessage = 'Disconnected'; });
+      setState(() { 
+        isConnected = false; 
+        remoteParticipants.clear(); 
+        isMuted = true; 
+        statusMessage = 'Disconnected'; 
+      });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Disconnected from voice room'), backgroundColor: Colors.grey, duration: Duration(seconds: 2)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Disconnected from voice room'), 
+            backgroundColor: Colors.grey, 
+            duration: Duration(seconds: 2)
+          )
+        );
       }
     } catch (error) {
       setState(() { statusMessage = 'Error during disconnect'; });
@@ -235,17 +286,24 @@ class _VoiceCallPageState extends State<VoiceCallPage> {
         await room!.localParticipant!.setMicrophoneEnabled(isMuted);
         setState(() { isMuted = !isMuted; });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isMuted ? 'Microphone muted' : 'Microphone unmuted'), duration: Duration(seconds: 1)));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isMuted ? 'Microphone muted' : 'Microphone unmuted'), 
+              duration: Duration(seconds: 1)
+            )
+          );
         }
       }
     } catch (error) {
-      // ignore
+      print('❌ Mute toggle failed: $error');
     }
   }
 
   void _onRoomUpdate() {
     if (mounted) {
-      setState(() { remoteParticipants = room?.remoteParticipants.values.toList() ?? []; });
+      setState(() { 
+        remoteParticipants = room?.remoteParticipants.values.toList() ?? []; 
+      });
     }
   }
 
